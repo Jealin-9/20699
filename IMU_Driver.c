@@ -250,8 +250,19 @@ uint8_t imu_range_detection(uint8_t *fault_code)
 }
 
 
+/************************************************************
+* @brief    错误注入(用来测试)
+* @param    none
+* @retval    1：成功, 0：失败
+************************************************************/
+uint8_t imu_fault_inject(uint8_t fault_code)
+{
+    uint8_t status = 1;
+    return status;
+}
 
-uint8_t imu_fault_inject(uint8_t fault_code);    /* 错误注入(用来测试) */
+
+
 uint8_t imu_functional_safety_diagnosis(SM_Alarms_Struct *SM_code);    /* 功能安全检测 */
 uint8_t imu_temp_comp(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gyro_to, uint16_t acc_tc[], uint16_t acc_qtc[], uint16_t *acc_to);    /* IMU温度补偿 */
 uint8_t imu_R_TempComp_Reg(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gyro_to, uint16_t acc_tc[], uint16_t acc_qtc[], uint16_t *acc_to);    /* 读取IMU温度补偿数据 */
