@@ -272,8 +272,8 @@ uint8_t imu_temp_comp(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gyro_to
         status &= imu_write_reg(i +0x3DU, acc_tc[i]);    /* 加速度一次项温度补偿系数寄存器首地址0x3D */
         status &= imu_write_reg(i +0x42U, acc_qtc[i]);    /* 加速度二次项温度补偿系数寄存器首地址0x42 */
     }
-    status &= imu_write_reg(0x5DU, gyro_to);    /* 陀螺仪温度差补偿系数寄存器地址0x5D */
-    status &= imu_write_reg(0x5EU, acc_to);    /* 加速度温度差补偿系数寄存器地址0x5E */
+    status &= imu_write_reg(0x5DU, *gyro_to);    /* 陀螺仪温度差补偿系数寄存器地址0x5D */
+    status &= imu_write_reg(0x5EU, *acc_to);    /* 加速度温度差补偿系数寄存器地址0x5E */
 
     status &= imu_select_bank(BANK0);
     status &= imu_lock(LOCK_TYPE_TLM);
@@ -300,10 +300,10 @@ uint8_t imu_R_TempComp_Reg(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gy
 
     for(i = 0U; i < 5U; i++)
     {
-        status &= imu_read_reg(i +0x4CU, gyro_tc[i]);    /* 陀螺仪一次项温度补偿系数寄存器首地址0x4C */
-        status &= imu_read_reg(i +0x51U, gyro_qtc[i]);    /* 陀螺仪二次项温度补偿系数寄存器首地址0x51 */
-        status &= imu_read_reg(i +0x3DU, acc_tc[i]);    /* 加速度一次项温度补偿系数寄存器首地址0x3D */
-        status &= imu_read_reg(i +0x42U, acc_qtc[i]);    /* 加速度二次项温度补偿系数寄存器首地址0x42 */
+        status &= imu_read_reg(i +0x4CU, &gyro_tc[i]);    /* 陀螺仪一次项温度补偿系数寄存器首地址0x4C */
+        status &= imu_read_reg(i +0x51U, &gyro_qtc[i]);    /* 陀螺仪二次项温度补偿系数寄存器首地址0x51 */
+        status &= imu_read_reg(i +0x3DU, &acc_tc[i]);    /* 加速度一次项温度补偿系数寄存器首地址0x3D */
+        status &= imu_read_reg(i +0x42U, &acc_qtc[i]);    /* 加速度二次项温度补偿系数寄存器首地址0x42 */
     }
     status &= imu_read_reg(0x5DU, gyro_to);    /* 陀螺仪温度差补偿系数寄存器地址0x5D */
     status &= imu_read_reg(0x5EU, acc_to);    /* 加速度温度差补偿系数寄存器地址0x5E */
@@ -521,7 +521,7 @@ static uint8_t imu_read_reg(uint8_t address, uint16_t *read_data)
     spi_txData[0] = (uint8_t)(imu_cmd >> 24U);
     spi_txData[1] = (uint8_t)(imu_cmd >> 16U);
     spi_txData[2] = (uint8_t)(imu_cmd >> 8U);
-    spi_txData[3] = (uint8_t)imu_cmd
+    spi_txData[3] = (uint8_t)imu_cmd;
     (void)imu_spi_Interface(IMU_SPI_CS, spi_txData, spi_rxData, 4);
     (void)imu_spi_Interface(IMU_SPI_CS, dummy_cmd, spi_rxData, 4);
 
@@ -867,7 +867,7 @@ static uint8_t imu_check_test_ro(uint16_t *ro_val)
     uint8_t status = 1;
     status &= imu_select_bank(BANK0);
     status &= imu_read_reg(0x0CU, ro_val);
-    if(0xAA55U != *ro_val || 0U == status)
+    if((0xAA55U != *ro_val) || (0U == status))
         return 0U;
     else
         return 1U;
