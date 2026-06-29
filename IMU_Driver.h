@@ -97,7 +97,7 @@ typedef struct {
 /********************************************************************************
 * function declaration
 ********************************************************************************/
-uint8_t imu_init_config(voi);    /* IMU初始化配置 */
+uint8_t imu_init_config(void);    /* IMU初始化配置 */
 uint8_t imu_communication_test(uint16_t wdata, uint16_t *rdata);    /* IMU通信测试 */
 uint8_t imu_R_data(uint16_t gyroData[], uint16_t accData[], uint16_t *tempData);    /* 读取IMU六轴数据及温度数据 */
 uint8_t imu_fault_overview(uint8_t *fault_code);    /* 错误检测概览 */
