@@ -753,7 +753,7 @@ static uint8_t imu_device_reset(void)
     for(i = 0U; i < 30U; i++)
     {
         imu_delay_ms(10U);    /* 延时10ms */
-        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否未LowPower状态(0x01) */
+        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否是LowPower状态(0x01) */
         if(0x01U == fsm_status_reg)
             break;
     }
@@ -777,10 +777,10 @@ static uint8_t imu_device_lowpower(void)
     status &= imu_read_fsm_com_stat(&fsm_status_reg);     /* 读此时的FSM状态 */
 
     if(1U == fsm_status_reg) {
-        return status;
+        return status;    /* 若处于LowPower状态,直接结束 */
     }
     else if((3U==fsm_status_reg) || (5U==fsm_status_reg)) {
-        status &= imu_write_fsm_com_stat(0x0004U);    /* 发送GO_LowPower指令(0x0004) */
+        status &= imu_write_fsm_com_stat(0x0004U);    /* 若处于WaitForSpi状态或RUN状态,发送GO_LowPower指令(0x0004) */
     }
     else {
         return 0U;
@@ -789,7 +789,7 @@ static uint8_t imu_device_lowpower(void)
     for(i = 0U; i < 30U; i++)
     {
         imu_delay_ms(10U);    /* 延时10ms */
-        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否未LowPower状态(0x01) */
+        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否是LowPower状态(0x01) */
         if(0x01U == fsm_status_reg)
             break;
     }
@@ -800,14 +800,176 @@ static uint8_t imu_device_lowpower(void)
 }
 
 
-
-static uint8_t imu_device_waitforspi(void);    /* 进入Wait For Spi状态 */
-static uint8_t imu_device_run(void);    /* 进入RUN状态 */
-static uint8_t imu_set_gyro_accel_fs(IMU_GYRO_FS_SET_t gyro_fs, IMU_ACCEL_FS_SET_t accel_fs);    /* 设置陀螺仪量程和加速度计量程 */
-static uint8_t imu_set_odr(IMU_ODR_SET_t odr);    /* 设置ODR */
-static uint8_t imu_set_dlpf(IMU_DLPF_SET_t dlpf);    /* 设置低通滤波 */
 /************************************************************
-* @brief    none
+* @brief    进入Wait For Spi状态
 * @param    none
-* @retval    none
+* @retval    1：成功, 0：失败
 ************************************************************/
+static uint8_t imu_device_waitforspi(void)
+{
+    uint8_t status = 1, i = 0;
+    uint16_t fsm_status_reg = 0;
+
+    status &= imu_read_fsm_com_stat(&fsm_status_reg);     /* 读此时的FSM状态 */
+
+    if(3U == fsm_status_reg) {
+        return status;    /* 若处于WaitForSpi状态,直接结束 */
+    }
+    else if(1U==fsm_status_reg) {
+        status &= imu_write_fsm_com_stat(0x0001U);    /* 若处于LowPower状态,发送GO_WakeUp指令(0x0001) */
+    }
+    else if((5U==fsm_status_reg) || (7U==fsm_status_reg)) {
+        status &= imu_write_fsm_com_stat(0x0003U);    /* 若处于RUN状态或Wake_On_Motion状态,发送GO_Wait指令(0x0003) */
+    }
+    else {
+        return 0U;
+    }
+
+    for(i = 0U; i < 30U; i++)
+    {
+        imu_delay_ms(10U);    /* 延时10ms */
+        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否是WaitForSpi状态(0x03) */
+        if(0x03U == fsm_status_reg)
+            break;
+    }
+    if((3U==fsm_status_reg) && (1U==status))
+        return 1U;
+    else
+        return 0U;
+}
+
+
+/************************************************************
+* @brief    进入RUN状态
+* @param    none
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_device_run(void)
+{
+    uint8_t status = 1, i = 0;
+    uint16_t fsm_status_reg = 0;
+
+    status &= imu_read_fsm_com_stat(&fsm_status_reg);     /* 读此时的FSM状态 */
+
+    if(5U == fsm_status_reg) {
+        return status;    /* 若处于Run状态,直接结束 */
+    }
+    else if(3U==fsm_status_reg) {
+        status &= imu_write_fsm_com_stat(0x0002U);    /* 若处于WaitForSpi状态,发送EOI指令(0x0002) */
+    }
+    else {
+        return 0U;
+    }
+
+    for(i = 0U; i < 30U; i++)
+    {
+        imu_delay_ms(10U);    /* 延时10ms */
+        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否是Run状态(0x05) */
+        if(0x05U == fsm_status_reg)
+            break;
+    }
+    if((5U==fsm_status_reg) && (1U==status))
+        return 1U;
+    else
+        return 0U;
+}
+
+
+/************************************************************
+* @brief    设置陀螺仪量程和加速度计量程
+* @param    gyro_fs:陀螺仪量程
+* @param    accel_fs:加速度计量程
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_set_gyro_accel_fs(IMU_GYRO_FS_SET_t gyro_fs, IMU_ACCEL_FS_SET_t accel_fs)
+{
+    uint8_t status = 1;
+    uint16_t gyro_fs_d = 0, accel_fs_d = 0, reg_rd_tmp = 0;
+
+    status &= imu_select_bank(BANK0);
+    status &= imu_unlock(LOCK_TYPE_CLM);
+    status &= imu_read_reg(0x5EU, &gyro_fs_d);    /* GYRO_FS寄存器地址0x5E */
+    status &= imu_read_reg(0x5DU, &accel_fs_d);    /* ACCEL_FS寄存器地址0x5D */
+    if(0U == status) {
+        status &= imu_lock(LOCK_TYPE_CLM);
+        return status;
+    }
+    gyro_fs_d &= ~(0xE000U | 0x1C00U | 0x380U);    /* 分别是XYZ陀螺仪量程bit在寄存器中的掩码(0xFF80) */
+    accel_fs_d &=~(0x0380U | 0x0070U | 0x00EU);    /* 分别是XYZ加速度量程bit在寄存器中的掩码(0x03FE) */
+    gyro_fs_d |= (( ((uint16_t)gyro_fs<<13U) | ((uint16_t)gyro_fs<<10U) | ((uint16_t)gyro_fs<<7U) ) & 0xFF80U);
+    accel_fs_d |= (( ((uint16_t)accel_fs<<7U) | ((uint16_t)accel_fs<<4U) | ((uint16_t)accel_fs<<1U) ) & 0x03FEU);
+    
+    status &= imu_write_reg(0x5EU, gyro_fs_d);    /* 写入配置 */
+    status &= imu_write_reg(0x5DU, accel_fs_d);
+    
+    status &= imu_read_reg(0x5EU, &reg_rd_tmp);    /* 检查值是否已经写入 */
+    status &= (gyro_fs_d == reg_rd_tmp)? 1U: 0U;
+    status &= imu_read_reg(0x5DU, &reg_rd_tmp);
+    status &= (accel_fs_d == reg_rd_tmp)? 1U: 0U;
+
+    status &= imu_lock(LOCK_TYPE_CLM);
+    return status;
+}
+
+
+/************************************************************
+* @brief    设置ODR(数据输出速率)
+* @param    odr:数据输出速率
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_set_odr(IMU_ODR_SET_t odr)
+{
+    uint8_t status = 1;
+    uint16_t odr_rd = 0, reg_rd_tmp = 0;
+
+    status &= imu_select_bank(BANK0);
+    status &= imu_read_reg(0x4FU, &odr_rd);    /* ODR_CFG寄存器地址0x4F */
+    if(0U == status)
+        return status;
+    odr_rd &= ~0x000FU;    /* ODR对应bit在寄存器中的掩码(0x000F) */
+    odr_rd |= ((uint16_t)odr & 0x000FU);
+    
+    status &= imu_write_reg(0x4FU, odr_rd);    /* 写入配置 */
+    status &= imu_read_reg(0x4FU, &reg_rd_tmp);    /* 检查值是否已经写入 */
+    status &= (odr_rd == reg_rd_tmp)? 1U: 0U;
+
+    return status;
+}
+
+
+/************************************************************
+* @brief    设置低通滤波
+* @param    dlpf:低通滤波频率
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_set_dlpf(IMU_DLPF_SET_t dlpf)
+{
+    uint8_t status = 1;
+    uint16_t gyro_dlpf_d = 0, accel_dlpf_d = 0, reg_rd_tmp = 0;
+
+    status &= imu_select_bank(BANK0);
+    status &= imu_unlock(LOCK_TYPE_CLM);
+    status &= imu_read_reg(0x5CU, &gyro_dlpf_d);    /* DLPF_CFG_2寄存器(陀螺仪低通滤波设置)地址0x5C */
+    status &= imu_read_reg(0x5BU, &accel_dlpf_d);    /* DLPF_CFG_1寄存器(加速度低通滤波设置)地址0x5B */
+    if(0U == status) {
+        status &= imu_lock(LOCK_TYPE_CLM);
+        return status;
+    }
+    gyro_dlpf_d &= ~(0x01C0U | 0x0038U | 0x007U);    /* 分别是XYZ陀螺仪低通滤波bit在寄存器中的掩码(0xFF80) */
+    accel_dlpf_d &=~(0x01C0U | 0x0038U | 0x007U);    /* 分别是XYZ加速度低通滤波bit在寄存器中的掩码(0x03FE) */
+    gyro_dlpf_d |= (( ((uint16_t)dlpf<<6U) | ((uint16_t)dlpf<<3U) | ((uint16_t)dlpf<<0U) ) & 0x01FFU);
+    accel_dlpf_d |= (( ((uint16_t)dlpf<<6U) | ((uint16_t)dlpf<<3U) | ((uint16_t)dlpf<<0U) ) & 0x01FFU);
+    
+    status &= imu_write_reg(0x5CU, gyro_dlpf_d);    /* 写入配置 */
+    status &= imu_write_reg(0x5BU, accel_dlpf_d);
+    
+    status &= imu_read_reg(0x5CU, &reg_rd_tmp);    /* 检查值是否已经写入 */
+    status &= (gyro_dlpf_d == reg_rd_tmp)? 1U: 0U;
+    status &= imu_read_reg(0x5BU, &reg_rd_tmp);
+    status &= (accel_dlpf_d == reg_rd_tmp)? 1U: 0U;
+
+    status &= imu_lock(LOCK_TYPE_CLM);
+    return status;
+}
+
+
