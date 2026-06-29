@@ -567,16 +567,240 @@ static uint8_t imu_write_reg(uint8_t address, uint16_t write_data)
 }
 
 
+/************************************************************
+* @brief    读取IMU当前的FSM状态
+* @param    stat_value:IMU此时的FSM状态
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_read_fsm_com_stat(uint16_t *stat_value)
+{
+    uint8_t ret = imu_read_reg(0x7EU, stat_value);    /* FSM_COM_STAT寄存器地址0x7E */
+    *stat_value = (*stat_value & 0xFF00U) >> 8U;
+    return ret;
+}
 
-static uint8_t imu_read_fsm_com_stat(uint16_t *stat_value);    /* 读FSM状态 */
-static uint8_t imu_write_fsm_com_stat(uint16_t cmd_value);    /* 发送FSM命令，转换状态 */
-static uint8_t imu_lock(uint8_t lock_type);    /* 锁定寄存器 */
-static uint8_t imu_unlock(uint8_t lock_type);    /* 解锁寄存器 */
-static uint8_t imu_select_bank(uint8_t bank);    /* 切换BANK */
-static uint8_t imu_read_whoami(uint16_t *value);    /* 读取whoami寄存器 */
-static uint8_t imu_check_test_ro(uint16_t *ro_val);    /* 检查固定值 */
-static uint8_t imu_device_reset(void);    /* 进入RESET状态 */
-static uint8_t imu_device_lowpower(void);    /* 进入LowPower状态 */
+
+/************************************************************
+* @brief    发送FSM命令，转换IMU状态
+* @param    cmd_value:FSM_COM命令
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_write_fsm_com_stat(uint16_t cmd_value)
+{
+    uint8_t status = 1;
+    uint16_t fsm_com_stat = 0;
+    status &= imu_read_reg(0x7EU, &fsm_com_stat);    /* FSM_COM_STAT寄存器地址0x7E */
+    fsm_com_stat &= 0xFF00U;
+    fsm_com_stat |= cmd_value;
+    status &= imu_write_reg(0x7EU, &fsm_com_stat);    /* FSM_COM_STAT寄存器地址0x7E */
+    return status;
+}
+
+
+/************************************************************
+* @brief    锁定寄存器
+* @param    lock_type: 0:BLM, 1:CLM, 2:TLM
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_lock(uint8_t lock_type)
+{
+    uint8_t status = 1;
+    uint16_t unlock_psw_val = 0;
+    uint16_t mask = 0, shitf = 0, lock_code = 0;
+
+    switch(lock_type)
+    {
+        case 0U: mask = 0x07U; lock_code = 5U;
+            break;
+        case 1U: mask = 0x380U; shitf = 7U; lock_code = 4U;
+            break;
+        case 2U: mask = 0x1C00U; shitf = 10U; lock_code = 6U;
+            break;
+        default: break;
+    }
+    status &= imu_read_reg(0x6EU, &unlock_psw_val);    /* MODO_REGISTER寄存器地址0x6E */
+    if(0U != ((unlock_psw_val & mask) >> shitf))    /* 非零值表示当前寄存器并非锁定状态 */
+    {
+        lock_code = (locd_code << shitf) & mask;
+        status &= imu_write_reg(0x6EU, lock_code);
+    }
+    status &= imu_read_reg(0x6EU, &unlock_psw_val);
+    status &= (0U == (unlock_psw_val & mask))? 1U: 0U;
+    return status;
+}
+
+
+/************************************************************
+* @brief    解锁寄存器
+* @param    lock_type: 0:BLM, 1:CLM, 2:TLM
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_unlock(uint8_t lock_type)
+{
+    uint8_t status = 1, i = 0, j = 0;
+    uint16_t mask = 0, shitf = 0;
+    uint16_t unlock_code[4] = {0};
+    uint16_t unlock_psw_val = 0;
+    static uint16_t unlock_status[4] = {0, 2, 3, 7};
+    
+    switch(lock_type)
+    {
+        case 0U:    /* BLM UNLOCK */
+            mask = 0x0007U; unlock_code[0] = 2U; unlock_code[1] = 1U; unlock_code[2] = 4U;
+            break;
+        case 1U:     /* CLM UNLOCK */
+            mask = 0x0380U; shitf = 7U; unlock_code[0] = 6U; unlock_code[1] = 3U; unlock_code[2] = 5U;
+            break;
+        case 2U:     /* TLM UNLOCK */
+            mask = 0x1C00U; shitf =10U; unlock_code[0] = 7U; unlock_code[1] = 4U; unlock_code[2] = 3U;
+            break;
+        default: break;
+    }
+    status &= imu_lock(lock_type);
+    status &= imu_read_reg(0x6EU, &unlock_psw_val);    /* MODO_REGISTER寄存器地址0x6E */
+    while(((unlock_psw_val & mask) >> shitf) != unlock_status[3])    /* 完成解锁时状态因为0x07 */
+    {
+        for(i = 0U; i < 4U; i++)
+        {
+            /* 按照顺序写入110->011->101, 对应状态未010->011->111 */
+            if(unlock_status[i] == ((unlock_psw_val & mask) >> shitf))
+            {
+                unlock_psw_val = (unlock_code[i] << shitf) & mask;
+                status &= imu_write_reg(0x6EU, unlock_psw_val);
+                break;
+            }
+        }
+        status &= status &= imu_read_reg(0x6EU, &unlock_psw_val);
+        j++; if(j > 90) break;
+    }
+    status &= status &= imu_read_reg(0x6EU, &unlock_psw_val);
+    status &= (((unlock_psw_val & mask) >> shitf) == unlock_status[3])? 1U: 0U;
+    return status;
+}
+
+
+/************************************************************
+* @brief    设置所处BANK区
+* @param    bank: 0:bank0, 1:bank1, 2:bank2, 3:bank3
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_select_bank(uint8_t bank)
+{
+    uint8_t status = 1;
+    uint16_t bank_val = 0;
+
+    status &= imu_read_reg(0x7FU, &bank_val);    /* bank寄存器地址0x7F */
+    bank_val &= 0x03U;
+    if((bank_val != bank) && status)
+    {
+        if(0U == bank_val)
+            status &= imu_unlock(LOCK_TYPE_BLM);
+        status &= imu_write_reg(0x7FU, bank);
+        status &= imu_read_reg(0x7FU, &bank_val);
+        if(bank != bank_val) status = 0U;
+        if(0U == bank_val)
+            status &= imu_lock(LOCK_TYPE_BLM);
+    }
+    return status;
+}
+
+
+/************************************************************
+* @brief    读取whoami寄存器
+* @param    value:WHO_AM_I寄存器值
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_read_whoami(uint16_t *value)
+{
+    uint8_t status = 1;
+    status &= imu_select_bank(BANK0);
+    status &= imu_unlock(LOCK_TYPE_TLM);
+    status &= imu_read_reg(0x39U, value);    /* WHO_AM_I寄存器地址0x39 */
+    status &= imu_lock(LOCK_TYPE_TLM);
+    return status;
+}
+
+
+/************************************************************
+* @brief    检查固定值
+* @param    ro_val:TEST_RO寄存器值
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_check_test_ro(uint16_t *ro_val)
+{
+    uint8_t status = 1;
+    status &= imu_select_bank(BANK0);
+    status &= imu_read_reg(0x0CU, ro_val);
+    if(0xAA55U != *ro_val || 0U == status)
+        return 0U;
+    else
+        return 1U;
+}
+
+
+/************************************************************
+* @brief    进入RESET状态(完成复位后会自动进入LowPower状态)
+* @param    none
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_device_reset(void)
+{
+    uint8_t status = 1, i = 0;
+    uint16_t fsm_status_reg = 0;
+
+    status &= imu_write_fsm_com_stat(0x00F9U);    /* 发送GO_RESET指令(0x00F9) */
+
+    for(i = 0U; i < 30U; i++)
+    {
+        imu_delay_ms(10U);    /* 延时10ms */
+        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否未LowPower状态(0x01) */
+        if(0x01U == fsm_status_reg)
+            break;
+    }
+    if((1U==fsm_status_reg) && (1U==status))
+        return 1U;
+    else
+        return 0U;
+}
+
+
+/************************************************************
+* @brief    进入LowPower状态
+* @param    none
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_device_lowpower(void)
+{
+    uint8_t status = 1, i = 0;
+    uint16_t fsm_status_reg = 0;
+
+    status &= imu_read_fsm_com_stat(&fsm_status_reg);     /* 读此时的FSM状态 */
+
+    if(1U == fsm_status_reg) {
+        return status;
+    }
+    else if((3U==fsm_status_reg) || (5U==fsm_status_reg)) {
+        status &= imu_write_fsm_com_stat(0x0004U);    /* 发送GO_LowPower指令(0x0004) */
+    }
+    else {
+        return 0U;
+    }
+
+    for(i = 0U; i < 30U; i++)
+    {
+        imu_delay_ms(10U);    /* 延时10ms */
+        status &= imu_read_fsm_com_stat(&fsm_status_reg);    /* 读此时的FSM状态是否未LowPower状态(0x01) */
+        if(0x01U == fsm_status_reg)
+            break;
+    }
+    if((1U==fsm_status_reg) && (1U==status))
+        return 1U;
+    else
+        return 0U;
+}
+
+
+
 static uint8_t imu_device_waitforspi(void);    /* 进入Wait For Spi状态 */
 static uint8_t imu_device_run(void);    /* 进入RUN状态 */
 static uint8_t imu_set_gyro_accel_fs(IMU_GYRO_FS_SET_t gyro_fs, IMU_ACCEL_FS_SET_t accel_fs);    /* 设置陀螺仪量程和加速度计量程 */
