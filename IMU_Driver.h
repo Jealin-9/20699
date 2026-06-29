@@ -56,7 +56,7 @@ typedef struct {
   uint8_t SM19_MGA_Z_Alarm;    /* Z轴加速度计 */
   uint8_t SM16_ACCEL_Z_St;    /* Z轴加速度计 */
   uint8_t SM24_ACCEL_Z_Vrefsh_Charge;    /* Z轴加速度计 */
-  uint8_t SM17_ACCEL_Z_Vrefshieldz;    /* Z轴加速度计 */
+  uint8_t SM17_Vrefshieldz ;    /* Z轴加速度计 */
 
   uint8_t SM30_Spi_Clkcnt;    /* SPI通信 */
   uint8_t SM30_Spi_Crc;    /* SPI通信 */
