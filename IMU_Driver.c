@@ -252,25 +252,322 @@ uint8_t imu_range_detection(uint8_t *fault_code)
 
 /************************************************************
 * @brief    错误注入(用来测试)
-* @param    none
+* @param    fault_code:错误码
 * @retval    1：成功, 0：失败
 ************************************************************/
 uint8_t imu_fault_inject(uint8_t fault_code)
 {
     uint8_t status = 1;
+    uint16_t dummy_errinj_5_reg = 0;
+    uint16_t reg_rd_tmp = 0;
+
+    dummy_errinj_5_reg = ((fault_code & 0x40U) == 0x40U)? (dummy_errinj_5_reg | 0x0800U): dummy_errinj_5_reg;    /* gyro_x_failure */
+    dummy_errinj_5_reg = ((fault_code & 0x40U) == 0x40U)? (dummy_errinj_5_reg | 0x0800U): dummy_errinj_5_reg;    /* gyro_y_failure */
+    dummy_errinj_5_reg = ((fault_code & 0x40U) == 0x40U)? (dummy_errinj_5_reg | 0x0800U): dummy_errinj_5_reg;    /* gyro_z_failure */
+    
+    dummy_errinj_5_reg = ((fault_code & 0x40U) == 0x40U)? (dummy_errinj_5_reg | 0x0010U): dummy_errinj_5_reg;    /* gyro_x_failure */
+    dummy_errinj_5_reg = ((fault_code & 0x40U) == 0x40U)? (dummy_errinj_5_reg | 0x0808U): dummy_errinj_5_reg;    /* gyro_y_failure */
+    dummy_errinj_5_reg = ((fault_code & 0x40U) == 0x40U)? (dummy_errinj_5_reg | 0x0804U): dummy_errinj_5_reg;    /* gyro_z_failure */
+    
+    dummy_errinj_5_reg = ((fault_code & 0x80U) == 0x80U)? (dummy_errinj_5_reg | 0x4000U): dummy_errinj_5_reg;    /* accel_x_failure */
+    dummy_errinj_5_reg = ((fault_code & 0x40U) == 0x40U)? (dummy_errinj_5_reg | 0x2000U): dummy_errinj_5_reg;    /* accel_y_failure */
+    dummy_errinj_5_reg = ((fault_code & 0x20U) == 0x20U)? (dummy_errinj_5_reg | 0x1000U): dummy_errinj_5_reg;    /* accel_z_failure */
+    dummy_errinj_5_reg = ((fault_code & 0x10U) == 0x10U)? (dummy_errinj_5_reg | 0x0020U): dummy_errinj_5_reg;    /* temp_failure */
+
+    status &= imu_device_waitforspi();
+    status &= imu_unlock(LOCK_TYPE_CLM);
+    status &= imu_write_reg(0x2EU, dummy_errinj_5_reg);
+    status &= imu_read_reg(0x2EU, &reg_rd_tmp);
+    status &= (dummy_errinj_5_reg == reg_rd_tmp)? 1U: 0U;
+    status &= imu_lock(LOCK_TYPE_CLM);
+    status &= imu_device_run();
+    
+    return status;
+}
+
+
+/************************************************************
+* @brief    功能安全诊断(全部)
+* @param    SM_code:功能安全码
+* @retval    1：成功, 0：失败
+************************************************************/
+uint8_t imu_functional_safety_diagnosis(SM_Alarms_Struct *SM_code)
+{
+    uint8_t status = 1;
+    uint8_t summary_fault = 0;
+    uint16_t safety_reg = 0;
+
+    status &= imu_fault_overview(&summary_fault);
+    if(0U != (summary_fault & 0x80U))    /* X轴角速度报警 */
+    {
+        status &= imu_read_reg(0x10U, &safety_reg);    /* 读GYRO_ST_STATUS_X_Cont寄存器(地址0x10) */
+        SM_code->SM02_GYRO_X_Drvratio = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM03_GYRO_X_Drfreqmeas = (0U == (safety_reg & 0x4000U))? 0U: 1U;
+        SM_code->SM04_GYRO_X_Quadadc = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM07_GYRO_X_Drclk = (0U == (safety_reg & 0x1000U))? 0U: 1U;
+        SM_code->SM20_GYRO_X_Alarm = (0U == (safety_reg & 0x0800U))? 0U: 1U;
+        status &= imu_read_reg(0x13U, &safety_reg);    /* 读GYRO_ST_STATUS_X_SingleShot寄存器(地址0x13) */
+        SM_code->SM36_GYRO_X_St = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+    }
+    if(0U != (summary_fault & 0x40U))    /* Y轴角速度报警 */
+    {
+        status &= imu_read_reg(0x11U, &safety_reg);    /* 读GYRO_ST_STATUS_Y_Cont寄存器(地址0x11) */
+        SM_code->SM02_GYRO_Y_Drvratio = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM03_GYRO_Y_Drfreqmeas = (0U == (safety_reg & 0x4000U))? 0U: 1U;
+        SM_code->SM04_GYRO_Y_Quadadc = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM07_GYRO_Y_Drclk = (0U == (safety_reg & 0x1000U))? 0U: 1U;
+        SM_code->SM20_GYRO_Y_Alarm = (0U == (safety_reg & 0x0800U))? 0U: 1U;
+        status &= imu_read_reg(0x14U, &safety_reg);    /* 读GYRO_ST_STATUS_Y_SingleShot寄存器(地址0x14) */
+        SM_code->SM36_GYRO_Y_St = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+    }
+    if(0U != (summary_fault & 0x20U))    /* Z轴角速度报警 */
+    {
+        status &= imu_read_reg(0x12U, &safety_reg);    /* 读GYRO_ST_STATUS_Z_Cont寄存器(地址0x12) */
+        SM_code->SM02_GYRO_Z_Drvratio = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM03_GYRO_Z_Drfreqmeas = (0U == (safety_reg & 0x4000U))? 0U: 1U;
+        SM_code->SM04_GYRO_Z_Quadadc = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM07_GYRO_Z_Drclk = (0U == (safety_reg & 0x1000U))? 0U: 1U;
+        SM_code->SM20_GYRO_Z_Alarm = (0U == (safety_reg & 0x0800U))? 0U: 1U;
+        status &= imu_read_reg(0x15U, &safety_reg);    /* 读GYRO_ST_STATUS_Z_SingleShot寄存器(地址0x15) */
+        SM_code->SM36_GYRO_Z_St = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+    }
+    if(0U != (summary_fault & 0x10U))    /* X轴加速度报警 */
+    {
+        status &= imu_read_reg(0x17U, &safety_reg);    /* 读ACCEL_ST_STATUS_X_Cont寄存器(地址0x17) */
+        SM_code->SM19_ACCEL_X_Alarm = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM25_ACCEL_X_C2V = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM19_MGA_X_Alarm = (0U == (safety_reg & 0x0200U))? 0U: 1U;
+        status &= imu_read_reg(0x1AU, &safety_reg);    /* 读ACCEL_ST_STATUS_X_SingleShot寄存器(地址0x1A) */
+        SM_code->SM16_ACCEL_X_St = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+    }
+    if(0U != (summary_fault & 0x08U))    /* Y轴加速度报警 */
+    {
+        status &= imu_read_reg(0x18U, &safety_reg);    /* 读ACCEL_ST_STATUS_Y_Cont寄存器(地址0x18) */
+        SM_code->SM19_ACCEL_Y_Alarm = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM25_ACCEL_Y_C2V = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM19_MGA_Y_Alarm = (0U == (safety_reg & 0x0200U))? 0U: 1U;
+        status &= imu_read_reg(0x1BU, &safety_reg);    /* 读ACCEL_ST_STATUS_Y_SingleShot寄存器(地址0x1B) */
+        SM_code->SM16_ACCEL_Y_St = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+    }
+    if(0U != (summary_fault & 0x04U))    /* Z轴加速度报警 */
+    {
+        status &= imu_read_reg(0x19U, &safety_reg);    /* 读ACCEL_ST_STATUS_Z_Cont寄存器(地址0x19) */
+        SM_code->SM17_ACCEL_Z_Vrefshieldz = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM19_ACCEL_Z_Alarm = (0U == (safety_reg & 0x4000U))? 0U: 1U;
+        SM_code->SM25_ACCEL_Z_C2V = (0U == (safety_reg & 0x1000U))? 0U: 1U;
+        SM_code->SM19_MGA_Z_Alarm = (0U == (safety_reg & 0x0100U))? 0U: 1U;
+        status &= imu_read_reg(0x1CU, &safety_reg);    /* 读ACCEL_ST_STATUS_Z_SingleShot寄存器(地址0x1C) */
+        SM_code->SM24_ACCEL_Z_Vrefsh_Charge = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM16_ACCEL_Z_St = (0U == (safety_reg & 0x0040U))? 0U: 1U;
+    }
+    if(0U != (summary_fault & 0x02U))    /* SPI通信报警 */
+    {
+        status &= imu_read_reg(0x0FU, &safety_reg);    /* 读SPI_COMMUNICATION_STATUS寄存器(地址0x0F) */
+        SM_code->SM30_Spi_Clkcnt = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM30_Spi_Crc = (0U == (safety_reg & 0x4000U))? 0U: 1U;
+    }
+    if(0U != (summary_fault & 0x01U))    /* COMMON报警 */
+    {
+        status &= imu_read_reg(0x1EU, &safety_reg);    /* 读COMMON_ST_STATUS_Cont_1寄存器(地址0x1E) */
+        SM_code->SM18_ACCEL_Cp = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM14_GYRO_Vref = (0U == (safety_reg & 0x4000U))? 0U: 1U;
+        SM_code->SM22_Ahb_Eccerr = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM11_Avdd = (0U == (safety_reg & 0x1000U))? 0U: 1U;
+        SM_code->SM34_Bg = (0U == (safety_reg & 0x0800U))? 0U: 1U;
+        SM_code->SM14_Cp_Vref = (0U == (safety_reg & 0x0400U))? 0U: 1U;
+        SM_code->SM12_Dvdd = (0U == (safety_reg & 0x0200U))? 0U: 1U;
+        SM_code->SM06_GYRO_Cp25 = (0U == (safety_reg & 0x0100U))? 0U: 1U;
+        SM_code->SM06_GYRO_Cp5 = (0U == (safety_reg & 0x0080U))? 0U: 1U;
+        SM_code->SM14_ACCEL_Vref = (0U == (safety_reg & 0x0040U))? 0U: 1U;
+        SM_code->SM22_Otp_Eccerr = (0U == (safety_reg & 0x0002U))? 0U: 1U;
+        SM_code->SM03_Rcosc1_Freqmeas = (0U == (safety_reg & 0x0001U))? 0U: 1U;
+        
+        status &= imu_read_reg(0x1FU, &safety_reg);    /* 读COMMON_ST_STATUS_Cont_2寄存器(地址0x1F) */
+        SM_code->SM03_Rcosc2_Freqmeas = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM52_GYRO_Cavity_Check = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM30_Spi_Encdecod = (0U == (safety_reg & 0x1000U))? 0U: 1U;
+        SM_code->SM03_Sysclk_Freqmeas = (0U == (safety_reg & 0x0800U))? 0U: 1U;
+        SM_code->SM08_Temp_Dsp = (0U == (safety_reg & 0x0400U))? 0U: 1U;
+        SM_code->SM14_Temp_Vref = (0U == (safety_reg & 0x0200U))? 0U: 1U;
+        SM_code->SM08_Temp12 = (0U == (safety_reg & 0x0100U))? 0U: 1U;
+        SM_code->SM13_Vdd = (0U == (safety_reg & 0x0080U))? 0U: 1U;
+        SM_code->SM13_Vddio = (0U == (safety_reg & 0x0040U))? 0U: 1U;
+        SM_code->SM10_Vddmaster = (0U == (safety_reg & 0x0020U))? 0U: 1U;
+        SM_code->SM17_Vrefshieldxy = (0U == (safety_reg & 0x0010U))? 0U: 1U;
+        SM_code->SM33_Reg_Crc = (0U == (safety_reg & 0x0002U))? 0U: 1U;
+        SM_code->SM33_Reg_Parity = (0U == (safety_reg & 0x0001U))? 0U: 1U;
+        
+        status &= imu_read_reg(0x21U, &safety_reg);    /* 读COMMON_ST_STATUS_SingleShot_1寄存器(地址0x21) */
+        SM_code->SM26_Otp_Cpy = (0U == (safety_reg & 0x8000U))? 0U: 1U;
+        SM_code->SM26_Otp_Crc = (0U == (safety_reg & 0x4000U))? 0U: 1U;
+        SM_code->SM26_Otp_Reg = (0U == (safety_reg & 0x2000U))? 0U: 1U;
+        SM_code->SM29_Ahb_Bus = (0U == (safety_reg & 0x1000U))? 0U: 1U;
+    }
+    return status;
+}
+
+
+/************************************************************
+* @brief    IMU配置温度补偿系数
+* @param    gyro_tc:温度补偿一次项系数(acc_tc同类)
+* @param    gyro_qtc:温度补偿二次项系数(acc_qtc)
+* @param    gyro_to:温度差补偿系数(acc_to)
+* @retval    1：成功, 0：失败
+************************************************************/
+uint8_t imu_temp_comp(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gyro_to, uint16_t acc_tc[], uint16_t acc_qtc[], uint16_t *acc_to)
+{
+    uint8_t status = 1;
+    uint8_t i = 0;
+
+    status &= imu_device_waitforspi();
+    status &= imu_unlock(LOCK_TYPE_TLM);
+    status &= imu_select_bank(BANK3);
+
+    for(i = 0U; i < 5U; i++)
+    {
+        status &= imu_write_reg(i +0x4CU, gyro_tc[i]);    /* 陀螺仪一次项温度补偿系数寄存器首地址0x4C */
+        status &= imu_write_reg(i +0x51U, gyro_qtc[i]);    /* 陀螺仪二次项温度补偿系数寄存器首地址0x51 */
+        status &= imu_write_reg(i +0x3DU, acc_tc[i]);    /* 加速度一次项温度补偿系数寄存器首地址0x3D */
+        status &= imu_write_reg(i +0x42U, acc_qtc[i]);    /* 加速度二次项温度补偿系数寄存器首地址0x42 */
+    }
+    status &= imu_write_reg(0x5DU, gyro_to);    /* 陀螺仪温度差补偿系数寄存器地址0x5D */
+    status &= imu_write_reg(0x5EU, acc_to);    /* 加速度温度差补偿系数寄存器地址0x5E */
+
+    status &= imu_select_bank(BANK0);
+    status &= imu_lock(LOCK_TYPE_TLM);
+    status &= imu_device_run();
+
+    return status;
+}
+
+
+/************************************************************
+* @brief    读取IMU温度补偿数据
+* @param    gyro_tc:温度补偿一次项系数(acc_tc同类)
+* @param    gyro_qtc:温度补偿二次项系数(acc_qtc)
+* @param    gyro_to:温度差补偿系数(acc_to)
+* @retval    1：成功, 0：失败
+************************************************************/
+uint8_t imu_R_TempComp_Reg(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gyro_to, uint16_t acc_tc[], uint16_t acc_qtc[], uint16_t *acc_to)
+{
+    uint8_t status = 1;
+    uint8_t i = 0;
+
+    status &= imu_device_waitforspi();
+    status &= imu_select_bank(BANK3);
+
+    for(i = 0U; i < 5U; i++)
+    {
+        status &= imu_read_reg(i +0x4CU, gyro_tc[i]);    /* 陀螺仪一次项温度补偿系数寄存器首地址0x4C */
+        status &= imu_read_reg(i +0x51U, gyro_qtc[i]);    /* 陀螺仪二次项温度补偿系数寄存器首地址0x51 */
+        status &= imu_read_reg(i +0x3DU, acc_tc[i]);    /* 加速度一次项温度补偿系数寄存器首地址0x3D */
+        status &= imu_read_reg(i +0x42U, acc_qtc[i]);    /* 加速度二次项温度补偿系数寄存器首地址0x42 */
+    }
+    status &= imu_read_reg(0x5DU, gyro_to);    /* 陀螺仪温度差补偿系数寄存器地址0x5D */
+    status &= imu_read_reg(0x5EU, acc_to);    /* 加速度温度差补偿系数寄存器地址0x5E */
+
+    status &= imu_select_bank(BANK0);
+    status &= imu_device_run();
+
     return status;
 }
 
 
 
-uint8_t imu_functional_safety_diagnosis(SM_Alarms_Struct *SM_code);    /* 功能安全检测 */
-uint8_t imu_temp_comp(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gyro_to, uint16_t acc_tc[], uint16_t acc_qtc[], uint16_t *acc_to);    /* IMU温度补偿 */
-uint8_t imu_R_TempComp_Reg(uint16_t gyro_tc[], uint16_t gyro_qtc[], uint16_t *gyro_to, uint16_t acc_tc[], uint16_t acc_qtc[], uint16_t *acc_to);    /* 读取IMU温度补偿数据 */
 
 
-static uint8_t gen_lido_crc(uint32_t data);    /* 计算CRC校验值 */
-static uint8_t imu_read_reg(uint8_t address, uint16_t *read_data);    /* 读寄存器的值 */
-static uint8_t imu_write_reg(uint8_t address, uint16_t write_data);    /* 写入寄存器 */
+/************************************************************
+* @brief    计算CRC校验值
+* @param    data:fram data
+* @retval    crc value
+* @note    多项式为CRC-3/GSM(poly=0x03),初始值0x05,MSB-first
+************************************************************/
+static uint8_t gen_lido_crc(uint32_t data)
+{
+    uint8_t crc[3] = {1, 0, 1};
+    uint32_t shift = 0x80000000U
+    uint32_t crc_data = data & 0xFFFFFFF8U;
+    uint8_t crc_tmp = 0, i = 0;
+
+    for(i = 0U; i < 32U; i++)
+    {
+        crc_tmp = crc[2];
+        crc[2] = crc[1];
+        crc[1] = crc[0] ^ crc_tmp;
+        crc[0] = ((uint8_t)((crc_data & (shift >> i)) > 0U)) ^ crc_tmp;
+    }
+    crc_tmp = (crc[2] << 2U) | (crc[1] << 1U) | crc[0];
+    return crc_tmp;
+}
+
+
+/************************************************************
+* @brief    读IMU寄存器的值
+* @param    address:寄存器地址
+* @param    read_data:寄存器值
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_read_reg(uint8_t address, uint16_t *read_data)
+{
+    uint32_t imu_cmd = 0, imu_reg = 0;
+    uint8_t spi_txData[4] = {0};
+    uint8_t spi_rxData[4] = {0};
+    uint8_t dummy_cmd[4] = {0x9F, 0xC0, 0x00, 0x00};
+
+    /* 根据SPI帧结构创建SPI命令 */
+    imu_cmd = 0x80000000U | ((uint32_t)address <<22U);
+    imu_cmd = (gen_lido_crc(imu_cmd) & 0x00000007U) | imu_cmd;
+
+    /* 发送SPI命令并接收数据 */
+    spi_txData[0] = (uint8_t)(imu_cmd >> 24U);
+    spi_txData[1] = (uint8_t)(imu_cmd >> 16U);
+    spi_txData[2] = (uint8_t)(imu_cmd >> 8U);
+    spi_txData[3] = (uint8_t)imu_cmd
+    (void)imu_spi_Interface(IMU_SPI_CS, spi_txData, spi_rxData, 4);
+    (void)imu_spi_Interface(IMU_SPI_CS, dummy_cmd, spi_rxData, 4);
+
+    imu_reg = (uint32_t)spi_rxData[0]<<24U | (uint32_t)spi_rxData[1]<<16U | (uint32_t)spi_rxData[2]<<8U | (uint32_t)spi_rxData[3];
+    *read_data = (uint16_t()imu_reg >> 4U);
+
+    /* CRC校验 */
+    if(gen_lido_crc(imu_reg) == ((uint8_t)imu_reg & 0x07U))
+        return 1U;
+    else
+        return 0U;
+}
+
+
+/************************************************************
+* @brief    向IMU寄存器写入
+* @param    address:寄存器地址
+* @param    write_data:要写入的寄存器值
+* @retval    1：成功, 0：失败
+************************************************************/
+static uint8_t imu_write_reg(uint8_t address, uint16_t write_data)
+{
+    uint32_t imu_cmd = 0;
+    uint16_t imu_rd = 0;
+    uint8_t spi_txData[4] = {0};
+    uint8_t spi_rxData[4] = {0};
+    uint8_t dummy_cmd[4] = {0x9F, 0xC0, 0x00, 0x00};
+
+    /* 根据SPI帧结构创建SPI命令 */
+    imu_cmd = 0x80200000U | ((uint32_t)address <<22U) | ((uint32_t)write_data << 3U);
+    imu_cmd = (gen_lido_crc(imu_cmd) & 0x00000007U) | imu_cmd;
+
+    /* 发送SPI命令并接收数据 */
+    spi_txData[0] = (uint8_t)(imu_cmd >> 24U);
+    spi_txData[1] = (uint8_t)(imu_cmd >> 16U);
+    spi_txData[2] = (uint8_t)(imu_cmd >> 8U);
+    spi_txData[3] = (uint8_t)imu_cmd
+    (void)imu_spi_Interface(IMU_SPI_CS, spi_txData, spi_rxData, 4);
+    (void)imu_spi_Interface(IMU_SPI_CS, dummy_cmd, spi_rxData, 4);
+
+    return 1U;
+}
+
+
+
 static uint8_t imu_read_fsm_com_stat(uint16_t *stat_value);    /* 读FSM状态 */
 static uint8_t imu_write_fsm_com_stat(uint16_t cmd_value);    /* 发送FSM命令，转换状态 */
 static uint8_t imu_lock(uint8_t lock_type);    /* 锁定寄存器 */
